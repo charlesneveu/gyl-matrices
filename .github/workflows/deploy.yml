@@ -57,10 +57,9 @@ jobs:
           VITE_API_URL: https://api.gyl-matrices.workers.dev # <-- CHANGE THIS IF NEEDED
           
       - name: Deploy to Cloudflare Pages
-        uses: cloudflare/pages-action@v1
+        uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          projectName: gyl-matrices-app # MUST MATCH YOUR CF PAGES PROJECT NAME
-          directory: frontend/dist
-          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+          workingDirectory: frontend
+          command: pages deploy dist --project-name=gyl-matrices-app
