@@ -24,7 +24,9 @@ export default function CreateOffer() {
     try {
       // In a real app we might paginate or search dynamically, here we fetch a batch
       const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8787';
-      const res = await fetch(`${apiUrl}/api/products?limit=100&search=${search}`);
+      const res = await fetch(`${apiUrl}/api/products?limit=100&search=${search}`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('gyl_auth_token')}` }
+      });
       const data = await res.json();
       setProducts(data.data || []);
     } catch (e) {
@@ -35,7 +37,9 @@ export default function CreateOffer() {
   const fetchCatalogFields = useCallback(async () => {
     try {
       const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8787';
-      const res = await fetch(`${apiUrl}/api/catalog/columns`);
+      const res = await fetch(`${apiUrl}/api/catalog/columns`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('gyl_auth_token')}` }
+      });
       const data = await res.json();
       setCatalogFields(data.data || []);
     } catch (e) {
@@ -87,9 +91,13 @@ export default function CreateOffer() {
       return;
     }
     try {
-      await fetch('http://localhost:8787/api/templates', {
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8787';
+      await fetch(`${apiUrl}/api/templates`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('gyl_auth_token')}`
+        },
         body: JSON.stringify({ partner_name: partnerName, mapping_json: mapping })
       });
       alert('Modèle sauvegardé !');

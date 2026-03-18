@@ -1,13 +1,61 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
+import { sign, verify } from 'hono/jwt'
 
 type Bindings = {
   DB: D1Database
+  ADMIN_PASSWORD: string
+  JWT_SECRET: string
 }
 
 const app = new Hono<{ Bindings: Bindings }>()
 
 app.use('/api/*', cors())
+
+// --- Authentication Middleware ---
+app.use('/api/*', async (c, next) => {
+  // Allow unrestricted access to the login route
+  if (c.req.path === '/api/login') {
+    return next();
+  }
+
+  // Handle JWT validation
+  const authHeader = c.req.header('Authorization');
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return c.json({ error: 'Unauthorized. Missing Bearer Token.' }, 401);
+  }
+
+  const token = authHeader.split(' ')[1];
+  try {
+    // Requires JWT_SECRET to be defined in environment (wrangler or .dev.vars)
+    await verify(token, c.env.JWT_SECRET, 'HS256');
+    await next();
+  } catch (e) {
+    return c.json({ error: 'Invalid or expired token.' }, 401);
+  }
+});
+
+// POST /api/login
+app.post('/api/login', async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  if (!body.password) {
+    return c.json({ error: 'Password is required' }, 400);
+  }
+
+  // Compare with the securely injected environment variable
+  if (body.password !== c.env.ADMIN_PASSWORD) {
+    return c.json({ error: 'Incorrect password' }, 401);
+  }
+
+  // Create highly secure JWT expiring in 30 days
+  const payload = {
+    role: 'admin',
+    exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 30, // 30 days expiration
+  };
+
+  const token = await sign(payload, c.env.JWT_SECRET, 'HS256');
+  return c.json({ success: true, token });
+});
 
 // --- PRODUCTS ---
 

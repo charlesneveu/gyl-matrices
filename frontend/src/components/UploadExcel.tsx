@@ -78,7 +78,10 @@ export default function UploadExcel({ onUploadSuccess }: UploadExcelProps) {
       const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8787';
       const response = await fetch(`${apiUrl}/api/products`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('gyl_auth_token')}`
+        },
         body: JSON.stringify(payload)
       });
 
