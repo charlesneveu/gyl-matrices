@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { UploadCloud, CheckCircle, AlertCircle, Loader2, ListChecks, DatabaseZap } from 'lucide-react';
 
@@ -7,6 +7,7 @@ interface UploadExcelProps {
 }
 
 export default function UploadExcel({ onUploadSuccess }: UploadExcelProps) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [isParsing, setIsParsing] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -129,7 +130,11 @@ export default function UploadExcel({ onUploadSuccess }: UploadExcelProps) {
 
   const onChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) handleFileUpload(file);
+    if (file) {
+      handleFileUpload(file);
+      // Reset so the same file can be re-selected after cancellation
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
   }
 
   return (
@@ -145,7 +150,7 @@ export default function UploadExcel({ onUploadSuccess }: UploadExcelProps) {
           <p className="text-sm text-gray-500 mb-4">Glissez-déposez le fichier Excel pour commencer la configuration</p>
           <label className="cursor-pointer bg-white border border-gray-300 px-4 py-2 rounded shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50">
             Choisir un fichier
-            <input type="file" className="hidden" accept=".xlsx, .csv" onChange={onChange} />
+            <input ref={fileInputRef} type="file" className="hidden" accept=".xlsx, .csv" onChange={onChange} />
           </label>
         </div>
       )}

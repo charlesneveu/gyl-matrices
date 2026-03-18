@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import * as XLSX from 'xlsx';
-import { FileSpreadsheet, Download, Save, Search, Settings } from 'lucide-react';
+import { FileSpreadsheet, Download, Save, Search, Settings, FolderOpen } from 'lucide-react';
 
 interface Product {
   sku: string;
@@ -9,23 +9,33 @@ interface Product {
   [key: string]: any;
 }
 
+interface Template {
+  id: number;
+  partner_name: string;
+  mapping_json: Record<string, string>;
+}
+
 export default function CreateOffer() {
   const [partnerHeaders, setPartnerHeaders] = useState<string[]>([]);
+  const [parsedHeaders, setParsedHeaders] = useState<string[]>([]);
   const [mapping, setMapping] = useState<Record<string, string>>({}); // { partnerHeader: catalogField }
   const [partnerName, setPartnerName] = useState('');
-  
+
   const [products, setProducts] = useState<Product[]>([]);
   const [catalogFields, setCatalogFields] = useState<string[]>([]);
   const [selectedSkus, setSelectedSkus] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState('');
 
+  const [templates, setTemplates] = useState<Template[]>([]);
+
+  const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8787';
+  const authHeader = { Authorization: `Bearer ${localStorage.getItem('gyl_auth_token')}` };
+
   // Fetch products for selection
   const fetchProducts = useCallback(async () => {
     try {
-      // In a real app we might paginate or search dynamically, here we fetch a batch
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8787';
-      const res = await fetch(`${apiUrl}/api/products?limit=100&search=${search}`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('gyl_auth_token')}` }
+      const res = await fetch(`${apiUrl}/api/products?limit=500&search=${search}`, {
+        headers: authHeader
       });
       const data = await res.json();
       setProducts(data.data || []);
@@ -36,12 +46,19 @@ export default function CreateOffer() {
 
   const fetchCatalogFields = useCallback(async () => {
     try {
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8787';
-      const res = await fetch(`${apiUrl}/api/catalog/columns`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('gyl_auth_token')}` }
-      });
+      const res = await fetch(`${apiUrl}/api/catalog/columns`, { headers: authHeader });
       const data = await res.json();
       setCatalogFields(data.data || []);
+    } catch (e) {
+      console.error(e);
+    }
+  }, []);
+
+  const fetchTemplates = useCallback(async () => {
+    try {
+      const res = await fetch(`${apiUrl}/api/templates`, { headers: authHeader });
+      const data = await res.json();
+      setTemplates(data.data || []);
     } catch (e) {
       console.error(e);
     }
@@ -50,7 +67,19 @@ export default function CreateOffer() {
   useEffect(() => {
     fetchProducts();
     fetchCatalogFields();
-  }, [fetchProducts, fetchCatalogFields]);
+    fetchTemplates();
+  }, [fetchProducts, fetchCatalogFields, fetchTemplates]);
+
+  // Auto-map once both parsedHeaders and catalogFields are available
+  useEffect(() => {
+    if (parsedHeaders.length === 0 || catalogFields.length === 0) return;
+    const newMapping: Record<string, string> = {};
+    parsedHeaders.forEach((header) => {
+      const match = catalogFields.find(f => f.toLowerCase() === header.toString().toLowerCase());
+      if (match) newMapping[header] = match;
+    });
+    setMapping(newMapping);
+  }, [parsedHeaders, catalogFields]);
 
   const handlePartnerUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -62,27 +91,27 @@ export default function CreateOffer() {
       const workbook = XLSX.read(data, { type: 'array' });
       const firstSheetName = workbook.SheetNames[0];
       const worksheet = workbook.Sheets[firstSheetName];
-      
-      // Get headers from first row
+
       const json = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
       if (json.length > 0) {
-        setPartnerHeaders(json[0] as string[]);
-        
-        // Auto-map if possible (simple case-insensitive match)
-        // Note: we can't do this purely synchronously if catalogFields isn't loaded yet,
-        // but it should be since it fetches on mount.
-        const newMapping: Record<string, string> = {};
-        (json[0] as string[]).forEach((header) => {
-          // Fallback to checking the state directly. But inside the onload callback, state might be stale if it wasn't bound, 
-          // However, setState updating handles fresh state if we use a functional update, but since we just read catalogFields..
-          // The safer way: wait for user to map manually if auto-map misses, or use the catalogFields from scope.
-          const match = catalogFields.find(f => f.toLowerCase() === header.toString().toLowerCase());
-          if (match) newMapping[header] = match;
-        });
-        setMapping(newMapping);
+        const headers = json[0] as string[];
+        setPartnerHeaders(headers);
+        setParsedHeaders(headers);
+        setMapping({}); // Reset mapping, auto-map effect will trigger
       }
     };
     reader.readAsArrayBuffer(file);
+  };
+
+  const loadTemplate = (templateId: string) => {
+    if (!templateId) return;
+    const template = templates.find(t => t.id === Number(templateId));
+    if (!template) return;
+    const headers = Object.keys(template.mapping_json);
+    setPartnerName(template.partner_name);
+    setPartnerHeaders(headers);
+    setParsedHeaders([]);
+    setMapping(template.mapping_json);
   };
 
   const saveTemplate = async () => {
@@ -91,16 +120,16 @@ export default function CreateOffer() {
       return;
     }
     try {
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8787';
       await fetch(`${apiUrl}/api/templates`, {
         method: 'POST',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('gyl_auth_token')}`
+          ...authHeader
         },
         body: JSON.stringify({ partner_name: partnerName, mapping_json: mapping })
       });
       alert('Modèle sauvegardé !');
+      fetchTemplates();
     } catch (e) {
       console.error(e);
       alert('Erreur lors de la sauvegarde du modèle');
@@ -113,13 +142,12 @@ export default function CreateOffer() {
       return;
     }
     if (partnerHeaders.length === 0) {
-      alert('Uploadez d\'abord le fichier partenaire pour définir les colonnes.');
+      alert('Uploadez d\'abord le fichier partenaire ou chargez un modèle pour définir les colonnes.');
       return;
     }
 
-    // Build the export data
     const selectedProducts = products.filter(p => selectedSkus.has(p.sku));
-    
+
     const exportData = selectedProducts.map(product => {
       const row: any = {};
       partnerHeaders.forEach(header => {
@@ -132,8 +160,7 @@ export default function CreateOffer() {
     const worksheet = XLSX.utils.json_to_sheet(exportData, { header: partnerHeaders });
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Sheet1");
-    
-    // Download
+
     XLSX.writeFile(workbook, `Matrice_${partnerName || 'Partenaire'}.xlsx`);
   };
 
@@ -169,7 +196,7 @@ export default function CreateOffer() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        
+
         {/* Mapping Section */}
         <div className="col-span-1 border border-gray-200 bg-white rounded-lg shadow-sm">
           <div className="p-4 border-b border-gray-200">
@@ -179,6 +206,27 @@ export default function CreateOffer() {
             </h2>
           </div>
           <div className="p-4 space-y-4">
+
+            {/* Load template */}
+            {templates.length > 0 && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center">
+                  <FolderOpen className="w-4 h-4 mr-1 text-gray-400" />
+                  Charger un modèle existant
+                </label>
+                <select
+                  defaultValue=""
+                  onChange={(e) => loadTemplate(e.target.value)}
+                  className="block w-full pl-3 pr-10 py-2 text-sm border-gray-300 focus:outline-none focus:ring-primary-500 focus:border-primary-500 rounded-md border"
+                >
+                  <option value="">-- Sélectionner un modèle --</option>
+                  {templates.map(t => (
+                    <option key={t.id} value={t.id}>{t.partner_name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Upload matrice partenaire (vide)</label>
               <input type="file" accept=".xlsx, .csv" onChange={handlePartnerUpload} className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-primary-50 file:text-primary-700 hover:file:bg-primary-100" />
@@ -230,14 +278,14 @@ export default function CreateOffer() {
               </div>
               <input
                 type="text"
-                placeholder="Rechercher (SKU)..."
+                placeholder="Rechercher (SKU, Modèle)..."
                 className="block w-full pl-9 pr-3 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
             </div>
           </div>
-          
+
           <div className="flex-1 overflow-y-auto p-0">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50 sticky top-0">
@@ -270,8 +318,9 @@ export default function CreateOffer() {
               </tbody>
             </table>
           </div>
-          <div className="p-3 bg-gray-50 border-t border-gray-200 text-sm text-gray-600 font-medium">
-            {selectedSkus.size} produit(s) sélectionné(s)
+          <div className="p-3 bg-gray-50 border-t border-gray-200 text-sm text-gray-600 font-medium flex justify-between items-center">
+            <span>{selectedSkus.size} produit(s) sélectionné(s)</span>
+            <span className="text-xs text-gray-400 font-normal">{products.length} affiché(s) — utilisez la recherche pour affiner</span>
           </div>
         </div>
 
