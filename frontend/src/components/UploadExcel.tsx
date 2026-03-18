@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import * as XLSX from 'xlsx';
-import { UploadCloud, CheckCircle, AlertCircle, Loader2, ListChecks, DatabaseZap } from 'lucide-react';
+import { UploadCloud, CheckCircle, AlertCircle, Loader2, ListChecks, DatabaseZap, Layers } from 'lucide-react';
 
 interface UploadExcelProps {
   onUploadSuccess: () => void;
@@ -12,48 +12,58 @@ export default function UploadExcel({ onUploadSuccess }: UploadExcelProps) {
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  // New advanced import states
+  const [workbook, setWorkbook] = useState<XLSX.WorkBook | null>(null);
+  const [sheetNames, setSheetNames] = useState<string[]>([]);
+  const [selectedSheet, setSelectedSheet] = useState<string | null>(null);
+
   const [fileData, setFileData] = useState<any[] | null>(null);
   const [fileHeaders, setFileHeaders] = useState<string[]>([]);
   const [insertHeaders, setInsertHeaders] = useState<Set<string>>(new Set());
   const [updateHeaders, setUpdateHeaders] = useState<Set<string>>(new Set());
+
+  const parseSheet = (wb: XLSX.WorkBook, sheetName: string) => {
+    const worksheet = wb.Sheets[sheetName];
+    const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: "" });
+
+    if (jsonData.length === 0) throw new Error("La feuille sélectionnée est vide.");
+
+    const headersSet = new Set<string>();
+    jsonData.forEach((row: any) => Object.keys(row).forEach(k => {
+      if (!k.startsWith('__EMPTY')) headersSet.add(k);
+    }));
+
+    const headers = Array.from(headersSet);
+    if (!headers.includes('sku') && !headers.includes('SKU')) {
+      throw new Error("La colonne 'sku' est obligatoire dans le fichier Excel.");
+    }
+
+    setFileHeaders(headers);
+    setInsertHeaders(new Set(headers));
+    setUpdateHeaders(new Set(headers));
+    setFileData(jsonData);
+  };
 
   const handleFileUpload = useCallback(async (file: File) => {
     setIsParsing(true);
     setError(null);
     setSuccessMsg(null);
     setFileData(null);
+    setWorkbook(null);
+    setSheetNames([]);
+    setSelectedSheet(null);
 
     const reader = new FileReader();
     reader.onload = async (e) => {
       try {
         const data = new Uint8Array(e.target?.result as ArrayBuffer);
-        const workbook = XLSX.read(data, { type: 'array' });
-        
-        const firstSheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[firstSheetName];
-        
-        const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: "" });
-        
-        if (jsonData.length === 0) {
-          throw new Error("Le fichier est vide.");
+        const wb = XLSX.read(data, { type: 'array' });
+
+        if (wb.SheetNames.length === 1) {
+          parseSheet(wb, wb.SheetNames[0]);
+        } else {
+          setWorkbook(wb);
+          setSheetNames(wb.SheetNames);
         }
-
-        // Extract headers from the object keys, excluding __EMPTY
-        const headersSet = new Set<string>();
-        jsonData.forEach((row: any) => Object.keys(row).forEach(k => {
-          if (!k.startsWith('__EMPTY')) headersSet.add(k);
-        }));
-
-        const headers = Array.from(headersSet);
-        if (!headers.includes('sku') && !headers.includes('SKU')) {
-          throw new Error("La colonne 'sku' est obligatoire dans le fichier Excel.");
-        }
-
-        setFileHeaders(headers);
-        setInsertHeaders(new Set(headers)); // All checked by default for creation
-        setUpdateHeaders(new Set(headers)); // All checked by default for update
-        setFileData(jsonData);
       } catch (err) {
         setError((err as Error).message || 'Erreur inconnue lors du parsing');
       } finally {
@@ -62,6 +72,17 @@ export default function UploadExcel({ onUploadSuccess }: UploadExcelProps) {
     };
     reader.readAsArrayBuffer(file);
   }, []);
+
+  const handleSheetSelect = (sheetName: string) => {
+    if (!workbook) return;
+    setError(null);
+    try {
+      setSelectedSheet(sheetName);
+      parseSheet(workbook, sheetName);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
 
   const confirmUpload = async () => {
     if (!fileData) return;
@@ -150,10 +171,47 @@ export default function UploadExcel({ onUploadSuccess }: UploadExcelProps) {
         </div>
       )}
 
+      {sheetNames.length > 1 && !fileData && (
+        <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
+          <div className="flex items-center gap-2 mb-4">
+            <Layers className="w-5 h-5 text-blue-600" />
+            <h3 className="text-lg font-medium text-gray-900">Choisir une feuille</h3>
+            <span className="bg-blue-100 text-blue-800 text-xs font-semibold px-2.5 py-0.5 rounded ml-auto">
+              {sheetNames.length} feuilles détectées
+            </span>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {sheetNames.map(name => (
+              <button
+                key={name}
+                onClick={() => handleSheetSelect(name)}
+                className="flex items-center gap-2 px-4 py-3 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:border-blue-400 hover:bg-blue-50 hover:text-blue-700 transition-colors text-left"
+              >
+                <Layers className="w-4 h-4 shrink-0 text-gray-400" />
+                <span className="truncate">{name}</span>
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={() => { setSheetNames([]); setWorkbook(null); }}
+            className="mt-4 text-sm text-gray-400 hover:text-gray-600"
+          >
+            ← Changer de fichier
+          </button>
+        </div>
+      )}
+
       {fileData && (
         <div className="bg-white border text-left border-gray-200 rounded-lg p-6 shadow-sm">
           <div className="flex justify-between items-center mb-6">
-            <h3 className="text-lg font-medium text-gray-900">Configuration de l'Import</h3>
+            <div>
+              <h3 className="text-lg font-medium text-gray-900">Configuration de l'Import</h3>
+              {selectedSheet && (
+                <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-1">
+                  <Layers className="w-3 h-3" /> Feuille : <span className="font-medium">{selectedSheet}</span>
+                </p>
+              )}
+            </div>
             <span className="bg-blue-100 text-blue-800 text-xs font-semibold px-2.5 py-0.5 rounded">
               {fileData.length} lignes détectées
             </span>
@@ -219,10 +277,10 @@ export default function UploadExcel({ onUploadSuccess }: UploadExcelProps) {
 
           <div className="mt-8 flex justify-end space-x-3 border-t border-gray-100 pt-5">
             <button
-              onClick={() => setFileData(null)}
+              onClick={() => { setFileData(null); setSelectedSheet(null); }}
               className="px-4 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none"
             >
-              Annuler
+              {sheetNames.length > 1 ? '← Changer de feuille' : 'Annuler'}
             </button>
             <button
               onClick={confirmUpload}
