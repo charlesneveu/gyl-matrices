@@ -1,0 +1,66 @@
+name: Deploy to Cloudflare
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy-api:
+    runs-on: ubuntu-latest
+    name: Deploy API (Worker)
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: api/package-lock.json
+          
+      - name: Install dependencies
+        run: npm ci
+        working-directory: api
+        
+      - name: Deploy Worker
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: api
+          command: deploy
+
+  deploy-frontend:
+    runs-on: ubuntu-latest
+    name: Deploy Frontend (Pages)
+    needs: deploy-api # Wait for API domain to be available if needed
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+          
+      - name: Install dependencies
+        run: npm ci
+        working-directory: frontend
+        
+      - name: Build frontend
+        # Adjust VITE_API_URL to the actual domain deployed in deploy-api
+        run: npm run build
+        working-directory: frontend
+        env:
+          VITE_API_URL: https://api.gyl-matrices.workers.dev # <-- CHANGE THIS IF NEEDED
+          
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/pages-action@v1
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          projectName: gyl-matrices-app # MUST MATCH YOUR CF PAGES PROJECT NAME
+          directory: frontend/dist
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
