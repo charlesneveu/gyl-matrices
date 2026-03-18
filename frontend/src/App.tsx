@@ -5,6 +5,12 @@ import CreateOffer from './pages/CreateOffer'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { Login } from './pages/Login'
 
+const PublicRoute = ({ children }: { children: React.ReactNode }) => {
+  const { isAuthenticated } = useAuth();
+  if (isAuthenticated) return <Navigate to="/" replace />;
+  return <>{children}</>;
+};
+
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const { isAuthenticated } = useAuth();
   if (!isAuthenticated) return <Navigate to="/login" replace />;
@@ -54,7 +60,7 @@ function App() {
           <Navigation />
           <main className="flex-1 w-full mx-auto py-6">
             <Routes>
-              <Route path="/login" element={<Login />} />
+              <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
               <Route path="/" element={<ProtectedRoute><Catalog /></ProtectedRoute>} />
               <Route path="/create-offer" element={<ProtectedRoute><CreateOffer /></ProtectedRoute>} />
             </Routes>
