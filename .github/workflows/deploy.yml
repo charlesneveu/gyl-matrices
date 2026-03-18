@@ -54,7 +54,7 @@ jobs:
         run: npm run build
         working-directory: frontend
         env:
-          VITE_API_URL: https://api.gyl-matrices.workers.dev # <-- CHANGE THIS IF NEEDED
+          VITE_API_URL: https://gyl-matrices-api.charles-neveu.workers.dev
           
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
